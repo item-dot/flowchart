@@ -386,3 +386,696 @@
                 <button onclick="saveNodeText()" class="px-3.5 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold">儲存修改</button>
             </div>
         </div>
+    </div>
+
+    <!-- Modal 2: API 金鑰設定視窗 (安全儲存於 localStorage) -->
+    <div id="apiKeyModal" class="fixed inset-0 bg-slate-900/40 modal-backdrop z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl p-6 w-96 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b pb-2">
+                <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                    <i class="fa-solid fa-key text-purple-600"></i> 設定 Gemini API 金鑰
+                </h3>
+                <button onclick="closeApiKeyModal()" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+            </div>
+            <p class="text-xs text-slate-600 leading-relaxed">
+                金鑰將僅安全儲存在您個人的瀏覽器中 (`localStorage`)，絕不會寫死在公開程式碼或傳送給第三方伺服器。
+            </p>
+            <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Gemini API Key：</label>
+                <input type="password" id="apiKeyInput" class="w-full border border-slate-300 rounded-xl p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono" placeholder="AIzaSy...">
+            </div>
+            <div class="bg-purple-50 border border-purple-200 rounded-xl p-3 text-[11px] text-purple-800 leading-normal">
+                <i class="fa-solid fa-circle-info mr-1"></i> 還沒有金鑰？可前往 
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" class="underline font-bold text-purple-900 hover:text-purple-700">Google AI Studio</a> 免費申請。
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="clearApiKey()" class="px-3.5 py-1.5 text-xs bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg font-medium">清除金鑰</button>
+                <button onclick="closeApiKeyModal()" class="px-3.5 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium">取消</button>
+                <button onclick="saveApiKey()" class="px-3.5 py-1.5 text-xs bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold">儲存設定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 邏輯腳本區 -->
+    <script>
+        // 畫布資料結構 (預設為空白)
+        let nodes = [];
+        let connections = [];
+        let selectedNodeId = null;
+        let selectedConnectionId = null;
+
+        // 連線模式控制
+        let isConnectMode = false;
+        let connectSourceId = null;
+
+        // 拖曳狀態
+        let draggingNodeId = null;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        // DOM 元素引用
+        const canvasContainer = document.getElementById('canvasContainer');
+        const nodesContainer = document.getElementById('nodesContainer');
+        const linesGroup = document.getElementById('linesGroup');
+        const statusText = document.getElementById('statusText');
+
+        // 頁面初始化載入
+        window.onload = () => {
+            // 鍵盤 Delete / Backspace 快捷刪除
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    if (document.activeElement.tagName !== 'INPUT') {
+                        deleteSelected();
+                    }
+                }
+            });
+
+            // 畫布空白處點擊解除選取
+            canvasContainer.addEventListener('click', (e) => {
+                if (e.target === canvasContainer || e.target.id === 'svgLayer') {
+                    clearSelection();
+                }
+            });
+
+            // 初始渲染空白畫布，提示學生開始操作
+            renderNodes();
+            showStatus('歡迎使用！請從左側點擊或拖曳圖形到畫布，開始建立流程圖。');
+        };
+
+        // 新增圖形節點
+        function addNode(type, text = '', x = null, y = null) {
+            const id = 'node_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+            const defaultTexts = {
+                terminal: '開始',
+                io: '輸入考試成績',
+                process: '處理步驟',
+                decision: '成績 ≥ 60 分？'
+            };
+
+            const rect = canvasContainer.getBoundingClientRect();
+            const posX = x !== null ? x : Math.max(40, rect.width / 2 - 70 + (nodes.length * 15 % 80));
+            const posY = y !== null ? y : Math.max(40, 60 + (nodes.length * 50 % 200));
+
+            const newNode = {
+                id,
+                type,
+                text: text || defaultTexts[type],
+                x: posX,
+                y: posY
+            };
+
+            nodes.push(newNode);
+            renderNodes();
+            selectNode(id);
+            showStatus('已新增圖形，可雙擊修改文字或拖曳移動。');
+        }
+
+        // 渲染所有圖形節點 HTML
+        function renderNodes() {
+            nodesContainer.innerHTML = '';
+            nodes.forEach(node => {
+                const el = document.createElement('div');
+                el.id = node.id;
+                el.style.left = `${node.x}px`;
+                el.style.top = `${node.y}px`;
+                el.className = `absolute cursor-move pointer-events-auto flex items-center justify-center shadow-md transition-shadow hover:shadow-xl ${
+                    selectedNodeId === node.id ? 'ring-4 ring-sky-400 ring-offset-2' : ''
+                } ${
+                    connectSourceId === node.id ? 'ring-4 ring-amber-400 ring-offset-2 animate-pulse' : ''
+                }`;
+
+                // 依類型給予外觀樣式
+                if (node.type === 'terminal') {
+                    el.className += ' node-terminal w-32 h-12 text-white font-bold text-xs tracking-wide px-2 text-center';
+                    el.innerText = node.text;
+                } else if (node.type === 'process') {
+                    el.className += ' node-process w-36 h-14 text-white font-bold text-xs px-2 text-center';
+                    el.innerText = node.text;
+                } else if (node.type === 'io') {
+                    el.className += ' node-io w-36 h-14 text-white font-bold text-xs px-2 text-center';
+                    el.innerHTML = `<span class="node-io-text pointer-events-none">${node.text}</span>`;
+                } else if (node.type === 'decision') {
+                    el.className += ' node-decision w-32 h-32 text-white font-bold text-xs text-center p-2';
+                    el.innerHTML = `<span class="pointer-events-none max-w-[70px] leading-tight block transform -rotate-0">${node.text}</span>`;
+                }
+
+                // 註冊拖曳、點擊與雙擊事件
+                el.addEventListener('pointerdown', (e) => onNodePointerDown(e, node.id));
+                el.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    openTextModal(node.id);
+                });
+
+                nodesContainer.appendChild(el);
+            });
+
+            renderLines();
+        }
+
+        // 選取節點
+        function selectNode(id) {
+            if (isConnectMode) {
+                handleConnectClick(id);
+                return;
+            }
+            selectedNodeId = id;
+            selectedConnectionId = null;
+            renderNodes();
+        }
+
+        // 解除選取
+        function clearSelection() {
+            selectedNodeId = null;
+            selectedConnectionId = null;
+            renderNodes();
+        }
+
+        // 圖形拖曳處理
+        function onNodePointerDown(e, id) {
+            e.stopPropagation();
+            selectNode(id);
+
+            const node = nodes.find(n => n.id === id);
+            if (!node) return;
+
+            draggingNodeId = id;
+            dragOffsetX = e.clientX - node.x;
+            dragOffsetY = e.clientY - node.y;
+
+            window.addEventListener('pointermove', onNodePointerMove);
+            window.addEventListener('pointerup', onNodePointerUp);
+        }
+
+        function onNodePointerMove(e) {
+            if (!draggingNodeId) return;
+            const node = nodes.find(n => n.id === draggingNodeId);
+            if (node) {
+                const rect = canvasContainer.getBoundingClientRect();
+                node.x = Math.max(10, Math.min(rect.width - 130, e.clientX - dragOffsetX));
+                node.y = Math.max(10, Math.min(rect.height - 80, e.clientY - dragOffsetY));
+
+                const el = document.getElementById(node.id);
+                if (el) {
+                    el.style.left = `${node.x}px`;
+                    el.style.top = `${node.y}px`;
+                }
+                renderLines();
+            }
+        }
+
+        function onNodePointerUp() {
+            draggingNodeId = null;
+            window.removeEventListener('pointermove', onNodePointerMove);
+            window.removeEventListener('pointerup', onNodePointerUp);
+        }
+
+        // 連線模式控制
+        function toggleConnectMode() {
+            isConnectMode = !isConnectMode;
+            connectSourceId = null;
+
+            const btn = document.getElementById('btnConnectMode');
+            const txt = document.getElementById('connectBtnText');
+
+            if (isConnectMode) {
+                btn.className = "px-3.5 py-2 rounded-xl border border-amber-400 text-xs font-bold bg-amber-500 text-white flex items-center gap-1.5 shadow-md animate-bounce";
+                txt.innerText = "請點擊起始圖形...";
+                showStatus('連線模式：請點擊「第一個圖形」作為起點');
+            } else {
+                btn.className = "px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold bg-white text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 shadow-sm transition";
+                txt.innerText = "新增連線模式";
+                showStatus('已退出連線模式');
+            }
+            renderNodes();
+        }
+
+        function handleConnectClick(nodeId) {
+            if (!connectSourceId) {
+                connectSourceId = nodeId;
+                document.getElementById('connectBtnText').innerText = "請點擊目標圖形...";
+                showStatus('請點擊「第二個圖形」作為連線終點');
+                renderNodes();
+            } else {
+                if (connectSourceId !== nodeId) {
+                    const connId = 'conn_' + Date.now();
+                    connections.push({
+                        id: connId,
+                        from: connectSourceId,
+                        to: nodeId,
+                        label: ''
+                    });
+                    showStatus('連線建立成功！可點擊連線徽章切換「是 / 否」標籤');
+                }
+                connectSourceId = null;
+                toggleConnectMode();
+            }
+        }
+
+        // 計算圖形中心座標
+        function getNodeCenter(node) {
+            let width = 140;
+            let height = 56;
+            if (node.type === 'decision') {
+                width = 128;
+                height = 128;
+            }
+            return {
+                x: node.x + width / 2,
+                y: node.y + height / 2
+            };
+        }
+
+        // 渲染 SVG 導向連線
+        function renderLines() {
+            linesGroup.innerHTML = '';
+
+            connections.forEach(conn => {
+                const sourceNode = nodes.find(n => n.id === conn.from);
+                const targetNode = nodes.find(n => n.id === conn.to);
+
+                if (!sourceNode || !targetNode) return;
+
+                const start = getNodeCenter(sourceNode);
+                const end = getNodeCenter(targetNode);
+
+                const isSelected = selectedConnectionId === conn.id;
+
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                const d = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
+                path.setAttribute('d', d);
+                path.setAttribute('class', `flow-line ${isSelected ? 'selected' : ''}`);
+                path.setAttribute('marker-end', isSelected ? 'url(#arrow-selected)' : 'url(#arrow)');
+
+                path.onclick = (e) => {
+                    e.stopPropagation();
+                    selectedConnectionId = conn.id;
+                    selectedNodeId = null;
+                    renderNodes();
+                };
+
+                linesGroup.appendChild(path);
+
+                // 計算中點標籤 (是 / 否徽章)
+                const midX = (start.x + end.x) / 2;
+                const midY = (start.y + end.y) / 2;
+
+                const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                g.setAttribute('transform', `translate(${midX}, ${midY})`);
+                g.setAttribute('class', 'cursor-pointer');
+                g.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleLineLabel(conn.id);
+                };
+
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rect.setAttribute('x', '-14');
+                rect.setAttribute('y', '-12');
+                rect.setAttribute('width', '28');
+                rect.setAttribute('height', '24');
+                rect.setAttribute('rx', '6');
+                rect.setAttribute('fill', conn.label ? (conn.label === '是' ? '#10b981' : '#ef4444') : '#94a3b8');
+
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text.setAttribute('text-anchor', 'middle');
+                text.setAttribute('dominant-baseline', 'central');
+                text.setAttribute('fill', 'white');
+                text.setAttribute('font-size', '11');
+                text.setAttribute('font-weight', 'bold');
+                text.textContent = conn.label || '+';
+
+                g.appendChild(rect);
+                g.appendChild(text);
+                linesGroup.appendChild(g);
+            });
+        }
+
+        // 切換連線標籤 (無 -> 是 -> 否 -> 無)
+        function toggleLineLabel(connId) {
+            const conn = connections.find(c => c.id === connId);
+            if (conn) {
+                if (conn.label === '') conn.label = '是';
+                else if (conn.label === '是') conn.label = '否';
+                else conn.label = '';
+                renderLines();
+            }
+        }
+
+        // 刪除選取的物件
+        function deleteSelected() {
+            if (selectedNodeId) {
+                nodes = nodes.filter(n => n.id !== selectedNodeId);
+                connections = connections.filter(c => c.from !== selectedNodeId && c.to !== selectedNodeId);
+                selectedNodeId = null;
+                showStatus('已刪除選取的圖形');
+            } else if (selectedConnectionId) {
+                connections = connections.filter(c => c.id !== selectedConnectionId);
+                selectedConnectionId = null;
+                showStatus('已刪除選取的連線');
+            } else {
+                showStatus('請先點擊選取要刪除的圖形或連線');
+            }
+            renderNodes();
+        }
+
+        // 清空畫布確認
+        function confirmClearCanvas() {
+            if (nodes.length === 0) return;
+            if (confirm('確定要清空畫布上的所有圖形與連線嗎？')) {
+                nodes = [];
+                connections = [];
+                selectedNodeId = null;
+                selectedConnectionId = null;
+                renderNodes();
+                showStatus('已清空畫布，開始新練習吧！');
+            }
+        }
+
+        // 編輯文字 Modal
+        let editingNodeId = null;
+        function openTextModal(id) {
+            editingNodeId = id;
+            const node = nodes.find(n => n.id === id);
+            if (node) {
+                document.getElementById('nodeTextInput').value = node.text;
+                document.getElementById('textModal').classList.remove('hidden');
+                document.getElementById('nodeTextInput').focus();
+            }
+        }
+
+        function closeTextModal() {
+            document.getElementById('textModal').classList.add('hidden');
+            editingNodeId = null;
+        }
+
+        function saveNodeText() {
+            const val = document.getElementById('nodeTextInput').value.trim();
+            if (editingNodeId && val) {
+                const node = nodes.find(n => n.id === editingNodeId);
+                if (node) {
+                    node.text = val;
+                    renderNodes();
+                }
+            }
+            closeTextModal();
+        }
+
+        // 套用快捷文字
+        function applyQuickText(txt) {
+            if (selectedNodeId) {
+                const node = nodes.find(n => n.id === selectedNodeId);
+                if (node) {
+                    node.text = txt;
+                    renderNodes();
+                    showStatus(`已更新圖形內文為：「${txt}」`);
+                }
+            } else {
+                showStatus('請先點擊選取一個圖形，再套用快捷文字！');
+            }
+        }
+
+        // HTML5 拖放事件
+        function onDragStart(e, type) {
+            e.dataTransfer.setData('text/plain', type);
+        }
+
+        function allowDrop(e) {
+            e.preventDefault();
+        }
+
+        function onDrop(e) {
+            e.preventDefault();
+            const type = e.dataTransfer.getData('text/plain');
+            if (type) {
+                const rect = canvasContainer.getBoundingClientRect();
+                const x = e.clientX - rect.left - 60;
+                const y = e.clientY - rect.top - 30;
+                addNode(type, '', x, y);
+            }
+        }
+
+        // 動態狀態提示
+        function showStatus(msg) {
+            statusText.innerText = msg;
+        }
+
+        // 手動點擊「載入起步框架」時才會載入範例
+        function loadTemplate() {
+            nodes = [
+                { id: 'n1', type: 'terminal', text: '開始', x: 260, y: 30 },
+                { id: 'n2', type: 'io', text: '輸入考試成績', x: 250, y: 120 },
+                { id: 'n3', type: 'decision', text: '成績 ≥ 60 分？', x: 255, y: 220 },
+                { id: 'n4', type: 'io', text: '顯示『及格』', x: 120, y: 380 },
+                { id: 'n5', type: 'io', text: '顯示『不及格』', x: 390, y: 380 },
+                { id: 'n6', type: 'terminal', text: '結束', x: 260, y: 500 }
+            ];
+
+            connections = [
+                { id: 'c1', from: 'n1', to: 'n2', label: '' },
+                { id: 'c2', from: 'n2', to: 'n3', label: '' },
+                { id: 'c3', from: 'n3', to: 'n4', label: '是' },
+                { id: 'c4', from: 'n3', to: 'n5', label: '否' },
+                { id: 'c5', from: 'n4', to: 'n6', label: '' },
+                { id: 'c6', from: 'n5', to: 'n6', label: '' }
+            ];
+
+            renderNodes();
+            showStatus('已載入「考試成績是否及格？」範例起步框架！');
+        }
+
+        // 頁籤切換
+        function switchTab(tab) {
+            const taskBtn = document.getElementById('tabTaskBtn');
+            const aiBtn = document.getElementById('tabAiBtn');
+            const taskContent = document.getElementById('tabTask');
+            const aiContent = document.getElementById('tabAi');
+
+            if (tab === 'task') {
+                taskBtn.className = "flex-1 py-3 text-xs font-bold border-b-2 border-sky-600 text-sky-600 flex items-center justify-center gap-1.5 bg-white";
+                aiBtn.className = "flex-1 py-3 text-xs font-bold text-slate-500 hover:text-slate-700 flex items-center justify-center gap-1.5 bg-slate-50";
+                taskContent.classList.remove('hidden');
+                aiContent.classList.add('hidden');
+            } else {
+                aiBtn.className = "flex-1 py-3 text-xs font-bold border-b-2 border-purple-600 text-purple-600 flex items-center justify-center gap-1.5 bg-white";
+                taskBtn.className = "flex-1 py-3 text-xs font-bold text-slate-500 hover:text-slate-700 flex items-center justify-center gap-1.5 bg-slate-50";
+                aiContent.classList.remove('hidden');
+                taskContent.classList.add('hidden');
+            }
+        }
+
+        // ================= 離線本地邏輯檢查器 (Rule Engine) =================
+        function runLocalLogicCheck() {
+            const resultBox = document.getElementById('localCheckResult');
+            resultBox.classList.remove('hidden');
+
+            let issues = [];
+            let passes = [];
+
+            if (nodes.length === 0) {
+                resultBox.className = "p-3.5 rounded-xl border border-slate-200 bg-slate-50 text-xs space-y-1.5 text-slate-700";
+                resultBox.innerHTML = `<div class="font-bold flex items-center gap-1.5 text-slate-800"><i class="fa-solid fa-info-circle text-sky-600 text-sm"></i> 畫布目前是空的，請先加入圖形開始製作！</div>`;
+                return;
+            }
+
+            // 1. 檢查是否有「開始」與「結束」
+            const hasStart = nodes.some(n => n.type === 'terminal' && n.text.includes('開始'));
+            const hasEnd = nodes.some(n => n.type === 'terminal' && n.text.includes('結束'));
+            if (hasStart && hasEnd) {
+                passes.push('具備「開始」與「結束」圓角矩形。');
+            } else {
+                issues.push('缺少「開始」或「結束」圓角矩形。');
+            }
+
+            // 2. 檢查輸入成績平行四邊形
+            const hasInput = nodes.some(n => n.type === 'io' && (n.text.includes('輸入') || n.text.includes('成績')));
+            if (hasInput) {
+                passes.push('具備「輸入考試成績」平行四邊形。');
+            } else {
+                issues.push('建議使用平行四邊形進行「輸入考試成績」。');
+            }
+
+            // 3. 檢查菱形決策判斷
+            const decisionNode = nodes.find(n => n.type === 'decision');
+            if (decisionNode) {
+                passes.push('具備菱形「決策判斷」圖形。');
+
+                // 檢查菱形的出來連線是否有「是」與「否」
+                const outConns = connections.filter(c => c.from === decisionNode.id);
+                const hasYes = outConns.some(c => c.label === '是');
+                const hasNo = outConns.some(c => c.label === '否');
+
+                if (hasYes && hasNo) {
+                    passes.push('決策菱形已包含「是」與「否」兩條分支標籤。');
+                } else {
+                    issues.push('菱形分支連線需要點擊標籤補上「是」與「否」！');
+                }
+            } else {
+                issues.push('缺少菱形判斷圖形 (例：成績 ≥ 60 分？)。');
+            }
+
+            // 4. 輸出顯示診斷結果
+            if (issues.length === 0) {
+                resultBox.className = "p-3.5 rounded-xl border border-emerald-200 bg-emerald-50 text-xs space-y-1.5 text-emerald-800";
+                resultBox.innerHTML = `
+                    <div class="font-bold flex items-center gap-1.5 text-emerald-900">
+                        <i class="fa-solid fa-circle-check text-emerald-600 text-sm"></i> 邏輯完全正確！太棒了！
+                    </div>
+                    <ul class="list-disc list-inside space-y-1 text-[11px]">
+                        ${passes.map(p => `<li>${p}</li>`).join('')}
+                    </ul>
+                `;
+            } else {
+                resultBox.className = "p-3.5 rounded-xl border border-amber-200 bg-amber-50 text-xs space-y-1.5 text-amber-900";
+                resultBox.innerHTML = `
+                    <div class="font-bold flex items-center gap-1.5 text-amber-900">
+                        <i class="fa-solid fa-triangle-exclamation text-amber-600 text-sm"></i> 發現幾處可改進的地方：
+                    </div>
+                    <ul class="list-disc list-inside space-y-1 text-[11px] text-amber-800">
+                        ${issues.map(i => `<li>${i}</li>`).join('')}
+                    </ul>
+                `;
+            }
+        }
+
+        // ================= API 金鑰與 Gemini AI 整合 =================
+        function openApiKeyModal() {
+            const key = localStorage.getItem('gemini_api_key') || '';
+            document.getElementById('apiKeyInput').value = key;
+            document.getElementById('apiKeyModal').classList.remove('hidden');
+        }
+
+        function closeApiKeyModal() {
+            document.getElementById('apiKeyModal').classList.add('hidden');
+        }
+
+        function saveApiKey() {
+            const key = document.getElementById('apiKeyInput').value.trim();
+            if (key) {
+                localStorage.setItem('gemini_api_key', key);
+                showStatus('API 金鑰已儲存於您的瀏覽器！');
+            }
+            closeApiKeyModal();
+        }
+
+        function clearApiKey() {
+            localStorage.removeItem('gemini_api_key');
+            document.getElementById('apiKeyInput').value = '';
+            showStatus('已清除 API 金鑰');
+            closeApiKeyModal();
+        }
+
+        async function askGemini(mode) {
+            switchTab('ai');
+
+            const apiKey = localStorage.getItem('gemini_api_key');
+            if (!apiKey) {
+                openApiKeyModal();
+                showStatus('請先設定您的 Gemini API 金鑰');
+                return;
+            }
+
+            const loading = document.getElementById('aiLoading');
+            const output = document.getElementById('aiOutput');
+
+            loading.classList.remove('hidden');
+            output.innerHTML = '';
+
+            const canvasData = {
+                nodes: nodes.map(n => ({ type: n.type, text: n.text })),
+                connections: connections.map(c => {
+                    const fromNode = nodes.find(n => n.id === c.from);
+                    const toNode = nodes.find(n => n.id === c.to);
+                    return {
+                        from: fromNode ? fromNode.text : '未知',
+                        to: toNode ? toNode.text : '未知',
+                        label: c.label || '無標籤'
+                    };
+                })
+            };
+
+            const systemPrompt = `你是一位熱情親切、講話通俗易懂的台灣國中資訊科技老師。
+目標任務：指導七年級學生完成「考試成績是否及格？」流程圖。
+
+標準正確邏輯：
+1. 開始 (圓角矩形)
+2. 輸入考試成績 (平行四邊形)
+3. 判斷：成績 ≥ 60 分？ (菱形)
+   - 「是」分支 ➔ 顯示「及格」 (平行四邊形)
+   - 「否」分支 ➔ 顯示「不及格」 (平行四邊形)
+4. 顯示「及格」與「不及格」皆連線至 ➔ 結束 (圓角矩形)
+
+學生目前的流程圖 JSON：
+${JSON.stringify(canvasData, null, 2)}`;
+
+            let userPrompt = '';
+            if (mode === 'hint') {
+                userPrompt = `請分析學生目前的流程圖，給予「下一步思考提示」。
+需求規則：
+- 絕不直接公布完整答案！
+- 指出一個目前最需要修正或補齊的步驟即可。
+- 100 字以內，語氣溫和鼓勵。`;
+            } else {
+                userPrompt = `請完整檢查診斷學生流程圖。
+需求規則：
+1. 先讚美給予鼓勵。
+2. 逐點檢查圖形選擇與「是/否」分支邏輯是否正確。
+3. 用國中生能理解的台灣口吻回答，字數 150-200 字。`;
+            }
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userPrompt }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] }
+            };
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+                loading.classList.add('hidden');
+
+                if (data.candidates && data.candidates[0].content.parts[0].text) {
+                    const reply = data.candidates[0].content.parts[0].text;
+                    output.innerHTML = reply.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+                } else if (data.error) {
+                    output.innerText = `API 錯誤：${data.error.message || '請檢查 Key 是否正確'}`;
+                } else {
+                    output.innerText = 'AI 助教思考超時，請再試一次！';
+                }
+            } catch (err) {
+                loading.classList.add('hidden');
+                output.innerText = '連線失敗，請檢查網路連線或 API Key 是否正確。';
+                console.error(err);
+            }
+        }
+
+        // 匯出高解析度 PNG 圖片
+        function exportPNG() {
+            clearSelection();
+            showStatus('正在生成高畫質 PNG 圖片...');
+            setTimeout(() => {
+                html2canvas(canvasContainer, {
+                    backgroundColor: '#f8fafc',
+                    scale: 2
+                }).then(canvas => {
+                    const link = document.createElement('a');
+                    link.download = '考試成績流程圖_作業.png';
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                    showStatus('圖片匯出成功！');
+                });
+            }, 200);
+        }
+
+        // 列印與轉存 PDF
+        function printFlowchart() {
+            clearSelection();
+            window.print();
+        }
+    </script>
+</body>
+</html>
