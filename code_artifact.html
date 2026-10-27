@@ -1,0 +1,1074 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>流程圖學習實驗室 - 國中資訊科技 (考試成績是否及格)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome 6 Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <!-- html2canvas for PNG Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0284c7',
+                            600: '#0369a1',
+                            700: '#075985',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* 畫布網格背景 */
+        .canvas-grid {
+            background-color: #f8fafc;
+            background-image: radial-gradient(#cbd5e1 1.2px, transparent 1.2px);
+            background-size: 24px 24px;
+        }
+
+        /* 連線 SVG 樣式 */
+        .flow-line {
+            stroke: #475569;
+            stroke-width: 3.5;
+            transition: stroke 0.2s, stroke-width 0.2s;
+            cursor: pointer;
+        }
+        .flow-line:hover, .flow-line.selected {
+            stroke: #2563eb;
+            stroke-width: 5.5;
+        }
+
+        /* 流程圖五大圖形 CSS */
+        .node-terminal {
+            border-radius: 9999px;
+            background: linear-gradient(135deg, #10b981, #059669);
+        }
+        .node-process {
+            border-radius: 0.5rem;
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+        }
+        .node-io {
+            transform: skewX(-12deg);
+            border-radius: 0.375rem;
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+        }
+        .node-io-text {
+            transform: skewX(12deg);
+        }
+        .node-decision {
+            background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+            clip-path: polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%);
+        }
+
+        /* 模糊背景遮罩 */
+        .modal-backdrop {
+            backdrop-filter: blur(4px);
+        }
+
+        /* 自訂捲軸 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 3px;
+        }
+
+        /* 列印優化樣式 (@media print) */
+        @media print {
+            header, aside, #canvasTools, #statusNotice, .modal-backdrop {
+                display: none !important;
+            }
+            body {
+                background: white !important;
+                overflow: visible !important;
+            }
+            #canvasContainer {
+                position: absolute !important;
+                inset: 0 !important;
+                width: 100vw !important;
+                height: 100vh !important;
+                background: white !important;
+                border: none !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-slate-100 font-sans text-slate-800 h-screen flex flex-col overflow-hidden select-none">
+
+    <!-- 頂部導覽列 (適合投影大螢幕) -->
+    <header class="bg-white border-b border-slate-200 px-4 py-2.5 flex items-center justify-between shadow-sm z-30">
+        <div class="flex items-center space-x-3">
+            <div class="bg-sky-600 text-white p-2.5 rounded-xl flex items-center justify-center shadow-md">
+                <i class="fa-solid fa-diagram-project text-2xl"></i>
+            </div>
+            <div>
+                <h1 class="text-lg font-bold text-slate-800 tracking-wide flex items-center gap-2">
+                    流程圖學習實驗室
+                    <span class="text-xs font-bold px-2.5 py-0.5 bg-sky-100 text-sky-700 rounded-full border border-sky-200">七年級資訊科技</span>
+                </h1>
+                <p class="text-xs text-slate-500">練習任務：考試成績是否及格？</p>
+            </div>
+        </div>
+
+        <!-- 頂部工具列按鈕組 -->
+        <div class="flex items-center space-x-2">
+            <button id="btnConnectMode" onclick="toggleConnectMode()" class="px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold bg-white text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 shadow-sm transition">
+                <i class="fa-solid fa-route text-sky-600"></i>
+                <span id="connectBtnText">新增連線模式</span>
+            </button>
+            <button onclick="loadTemplate()" class="px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold bg-white text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 shadow-sm transition">
+                <i class="fa-solid fa-wand-magic-sparkles text-amber-500"></i>
+                <span>載入起步框架</span>
+            </button>
+            <button onclick="confirmClearCanvas()" class="px-3.5 py-2 rounded-xl border border-red-200 text-xs font-bold bg-red-50 text-red-600 hover:bg-red-100 flex items-center gap-1.5 transition">
+                <i class="fa-solid fa-trash-can"></i>
+                <span>清空畫布</span>
+            </button>
+            <div class="h-6 w-px bg-slate-200 mx-1"></div>
+            <button onclick="exportPNG()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition">
+                <i class="fa-solid fa-file-image"></i>
+                <span>匯出圖片</span>
+            </button>
+            <button onclick="printFlowchart()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition">
+                <i class="fa-solid fa-print"></i>
+                <span>列印/轉 PDF</span>
+            </button>
+            <button onclick="openApiKeyModal()" class="px-3.5 py-2 rounded-xl bg-purple-100 hover:bg-purple-200 text-purple-700 border border-purple-300 text-xs font-bold flex items-center gap-1.5 transition ml-1" title="設定個人 Gemini API 金鑰">
+                <i class="fa-solid fa-key text-purple-600"></i>
+                <span>設定 API 金鑰</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- 主工作區：三分欄 (圖形元件與快捷詞 | 畫布 | 任務診斷與 AI 助教) -->
+    <div class="flex-1 flex overflow-hidden relative">
+
+        <!-- 左側：流程圖五大元素與快捷文字盤 -->
+        <aside class="w-64 bg-white border-r border-slate-200 flex flex-col p-4 shadow-sm z-10 overflow-y-auto">
+            <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2.5 flex items-center gap-1.5">
+                <i class="fa-solid fa-shapes text-sky-600"></i> 1. 流程圖五大元素
+            </h2>
+            <p class="text-xs text-slate-500 mb-3">點擊或拖曳圖形加入畫布：</p>
+
+            <!-- 五大元素清單 -->
+            <div class="space-y-2 mb-5">
+                <!-- 1. Terminal -->
+                <div draggable="true" ondragstart="onDragStart(event, 'terminal')" onclick="addNode('terminal')" 
+                     class="cursor-pointer hover:scale-105 transition transform p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3 shadow-sm group">
+                    <div class="w-12 h-7 rounded-full bg-emerald-500 flex items-center justify-center text-white text-[11px] font-bold shadow-inner">開始</div>
+                    <div>
+                        <div class="text-xs font-bold text-slate-700 group-hover:text-emerald-700">開始 / 結束</div>
+                        <div class="text-[10px] text-slate-500">圓角矩形 (起點/終點)</div>
+                    </div>
+                </div>
+
+                <!-- 2. Input/Output -->
+                <div draggable="true" ondragstart="onDragStart(event, 'io')" onclick="addNode('io')" 
+                     class="cursor-pointer hover:scale-105 transition transform p-2.5 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-3 shadow-sm group">
+                    <div class="w-12 h-7 bg-blue-600 -skew-x-12 rounded flex items-center justify-center text-white text-[11px] font-bold shadow-inner">
+                        <span class="skew-x-12">資料</span>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold text-slate-700 group-hover:text-blue-700">輸入 / 輸出</div>
+                        <div class="text-[10px] text-slate-500">平行四邊形 (資料進出)</div>
+                    </div>
+                </div>
+
+                <!-- 3. Process -->
+                <div draggable="true" ondragstart="onDragStart(event, 'process')" onclick="addNode('process')" 
+                     class="cursor-pointer hover:scale-105 transition transform p-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-3 shadow-sm group">
+                    <div class="w-12 h-7 bg-amber-500 rounded flex items-center justify-center text-white text-[11px] font-bold shadow-inner">處理</div>
+                    <div>
+                        <div class="text-xs font-bold text-slate-700 group-hover:text-amber-700">處理 (執行/計算)</div>
+                        <div class="text-[10px] text-slate-500">矩形 (動作或處理步驟)</div>
+                    </div>
+                </div>
+
+                <!-- 4. Decision -->
+                <div draggable="true" ondragstart="onDragStart(event, 'decision')" onclick="addNode('decision')" 
+                     class="cursor-pointer hover:scale-105 transition transform p-2.5 bg-purple-50 border border-purple-200 rounded-xl flex items-center gap-3 shadow-sm group">
+                    <div class="w-8 h-8 bg-purple-600 rotate-45 rounded-sm flex items-center justify-center text-white text-[11px] font-bold shadow-inner mx-2">
+                        <span class="-rotate-45">判斷</span>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold text-slate-700 group-hover:text-purple-700">決策判斷</div>
+                        <div class="text-[10px] text-slate-500">菱形 (條件分支 是/否)</div>
+                    </div>
+                </div>
+
+                <!-- 5. Flow Line -->
+                <div class="p-2.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center gap-3">
+                    <div class="w-12 h-7 flex items-center justify-center text-slate-600 text-base">
+                        <i class="fa-solid fa-arrow-right"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold text-slate-700">流程方向 (連線)</div>
+                        <div class="text-[10px] text-slate-500">切換「連線模式」進行拉線</div>
+                    </div>
+                </div>
+            </div>
+
+            <hr class="border-slate-200 my-2">
+
+            <!-- 快捷文字庫 -->
+            <h2 class="text-xs font-bold text-slate-400 uppercase tracking-wider my-2 flex items-center gap-1.5">
+                <i class="fa-solid fa-font text-sky-600"></i> 2. 快捷文字庫
+            </h2>
+            <p class="text-xs text-slate-500 mb-2">點選畫布圖形後，點擊下方帶入：</p>
+            <div class="flex flex-wrap gap-1.5">
+                <button onclick="applyQuickText('開始')" class="text-xs px-2.5 py-1 bg-slate-100 hover:bg-sky-100 hover:text-sky-700 text-slate-700 rounded-lg border border-slate-300 font-medium transition">開始</button>
+                <button onclick="applyQuickText('輸入考試成績')" class="text-xs px-2.5 py-1 bg-slate-100 hover:bg-sky-100 hover:text-sky-700 text-slate-700 rounded-lg border border-slate-300 font-medium transition">輸入考試成績</button>
+                <button onclick="applyQuickText('成績 ≥ 60 分？')" class="text-xs px-2.5 py-1 bg-slate-100 hover:bg-sky-100 hover:text-sky-700 text-slate-700 rounded-lg border border-slate-300 font-medium transition">成績 ≥ 60 分？</button>
+                <button onclick="applyQuickText('顯示『及格』')" class="text-xs px-2.5 py-1 bg-slate-100 hover:bg-sky-100 hover:text-sky-700 text-slate-700 rounded-lg border border-slate-300 font-medium transition">顯示『及格』</button>
+                <button onclick="applyQuickText('顯示『不及格』')" class="text-xs px-2.5 py-1 bg-slate-100 hover:bg-sky-100 hover:text-sky-700 text-slate-700 rounded-lg border border-slate-300 font-medium transition">顯示『不及格』</button>
+                <button onclick="applyQuickText('結束')" class="text-xs px-2.5 py-1 bg-slate-100 hover:bg-sky-100 hover:text-sky-700 text-slate-700 rounded-lg border border-slate-300 font-medium transition">結束</button>
+            </div>
+        </aside>
+
+        <!-- 中間：互動畫布區 -->
+        <main class="flex-1 relative canvas-grid overflow-hidden flex flex-col" id="canvasContainer"
+              ondrop="onDrop(event)" ondragover="allowDrop(event)">
+
+            <!-- 浮動動態提示橫條 -->
+            <div id="statusNotice" class="absolute top-4 left-1/2 transform -translate-x-1/2 bg-slate-800/90 text-white text-xs px-4 py-2 rounded-full shadow-lg z-20 backdrop-blur flex items-center gap-2 transition duration-300">
+                <i class="fa-solid fa-circle-info text-sky-400"></i>
+                <span id="statusText">點擊左側圖形新增至畫布，雙擊圖形可編輯文字。</span>
+            </div>
+
+            <!-- SVG 連線繪製層 -->
+            <svg id="svgLayer" class="absolute inset-0 w-full h-full pointer-events-auto z-0">
+                <defs>
+                    <marker id="arrow" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                        <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569" />
+                    </marker>
+                    <marker id="arrow-selected" viewBox="0 0 10 10" refX="22" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                        <path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb" />
+                    </marker>
+                </defs>
+                <g id="linesGroup"></g>
+            </svg>
+
+            <!-- HTML 圖形節點層 -->
+            <div id="nodesContainer" class="absolute inset-0 z-10 pointer-events-none"></div>
+
+            <!-- 畫布右下角快捷按鈕 -->
+            <div id="canvasTools" class="absolute bottom-4 right-4 z-20 flex gap-2">
+                <button onclick="deleteSelected()" class="bg-white hover:bg-red-50 text-red-600 border border-slate-300 p-2.5 rounded-xl shadow-md text-xs font-bold flex items-center gap-1.5 transition" title="刪除選取的圖形或連線 (Delete 鍵)">
+                    <i class="fa-solid fa-trash-can"></i> 刪除選取元件
+                </button>
+            </div>
+        </main>
+
+        <!-- 右側：任務條件檢測與 AI 助教 -->
+        <aside class="w-80 bg-white border-l border-slate-200 flex flex-col shadow-sm z-10 overflow-hidden">
+
+            <!-- 頂部 Tab 頁籤切換 -->
+            <div class="flex border-b border-slate-200 bg-slate-50">
+                <button id="tabTaskBtn" onclick="switchTab('task')" class="flex-1 py-3 text-xs font-bold border-b-2 border-sky-600 text-sky-600 flex items-center justify-center gap-1.5 bg-white">
+                    <i class="fa-solid fa-list-check"></i> 練習任務與檢查
+                </button>
+                <button id="tabAiBtn" onclick="switchTab('ai')" class="flex-1 py-3 text-xs font-bold text-slate-500 hover:text-slate-700 flex items-center justify-center gap-1.5 bg-slate-50">
+                    <i class="fa-solid fa-robot text-purple-600"></i> AI 資訊助教
+                </button>
+            </div>
+
+            <!-- 頁籤 1：練習任務與本地離線檢查器 -->
+            <div id="tabTask" class="flex-1 p-4 overflow-y-auto space-y-4">
+                <div class="bg-sky-50 border border-sky-200 rounded-xl p-3.5">
+                    <h3 class="text-sm font-bold text-sky-900 flex items-center gap-1.5 mb-1">
+                        <i class="fa-solid fa-graduation-cap text-sky-600"></i> 任務：考試成績是否及格？
+                    </h3>
+                    <p class="text-xs text-sky-800 leading-relaxed">
+                        請設計一個評估成績的流程圖：輸入學生分數，判斷是否達到 <b>60 分</b>。滿 60 分顯示<b>「及格」</b>，未滿 60 分顯示<b>「不及格」</b>。
+                    </p>
+                </div>
+
+                <!-- 本地離線診斷按鈕 -->
+                <button onclick="runLocalLogicCheck()" class="w-full py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-xl font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition">
+                    <i class="fa-solid fa-square-check text-sm"></i>
+                    <span>進行本地邏輯檢查 (無需 API)</span>
+                </button>
+
+                <!-- 診斷結果面板 -->
+                <div id="localCheckResult" class="hidden p-3.5 rounded-xl border text-xs space-y-2"></div>
+
+                <!-- 規則條件清單 -->
+                <div class="space-y-2">
+                    <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider">標準流程圖規範核對：</h4>
+                    <div class="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-700 space-y-2">
+                        <div class="flex items-start gap-2">
+                            <span class="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center text-[10px] shrink-0 mt-0.5">1</span>
+                            <span><b>開始與結束：</b>使用圓角矩形標示開頭與結尾。</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[10px] shrink-0 mt-0.5">2</span>
+                            <span><b>輸入資料：</b>使用平行四邊形「輸入考試成績」。</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="w-4 h-4 rounded-full bg-purple-600 text-white flex items-center justify-center text-[10px] shrink-0 mt-0.5">3</span>
+                            <span><b>決策判斷：</b>使用菱形詢問「成績 ≥ 60 分？」。</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] shrink-0 mt-0.5">4</span>
+                            <span><b>「是」分支：</b>輸出平行四邊形顯示「及格」。</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <span class="w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center text-[10px] shrink-0 mt-0.5">5</span>
+                            <span><b>「否」分支：</b>輸出平行四邊形顯示「不及格」。</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 頁籤 2：Gemini AI 助教 -->
+            <div id="tabAi" class="flex-1 p-4 overflow-y-auto flex flex-col hidden space-y-3">
+                <div class="bg-purple-50 border border-purple-200 rounded-xl p-3 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-purple-600 text-white flex items-center justify-center text-lg shrink-0 shadow-sm">
+                        <i class="fa-solid fa-robot"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs font-bold text-purple-900">Gemini 資訊小助教</div>
+                        <div class="text-[10px] text-purple-700">可提供學習引導與智慧診斷</div>
+                    </div>
+                </div>
+
+                <!-- AI 功能按鈕組 -->
+                <div class="grid grid-cols-2 gap-2">
+                    <button onclick="askGemini('hint')" class="p-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm flex flex-col items-center justify-center gap-1 transition">
+                        <i class="fa-solid fa-lightbulb text-base"></i>
+                        <span>💡 請給我提示</span>
+                    </button>
+                    <button onclick="askGemini('check')" class="p-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs shadow-sm flex flex-col items-center justify-center gap-1 transition">
+                        <i class="fa-solid fa-magnifying-glass-chart text-base"></i>
+                        <span>🔍 AI 檢查流程圖</span>
+                    </button>
+                </div>
+
+                <!-- 載入動畫 -->
+                <div id="aiLoading" class="hidden py-8 flex flex-col items-center justify-center text-slate-500 space-y-2">
+                    <i class="fa-solid fa-circle-notch fa-spin text-2xl text-purple-600"></i>
+                    <span class="text-xs font-medium">AI 助教正在分析你的流程圖...</span>
+                </div>
+
+                <!-- AI 回覆內容輸出區域 -->
+                <div id="aiOutput" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-700 leading-relaxed overflow-y-auto min-h-[180px]">
+                    <p class="text-slate-400 italic text-center my-8">
+                        遇到卡關時點擊「💡 請給我提示」，或完成後點擊「🔍 AI 檢查流程圖」讓小助教為你診斷！
+                    </p>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Modal 1: 編輯文字視窗 -->
+    <div id="textModal" class="fixed inset-0 bg-slate-900/40 modal-backdrop z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl p-5 w-80 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b pb-2">
+                <h3 class="font-bold text-slate-800 text-sm">修改圖形內文</h3>
+                <button onclick="closeTextModal()" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+            </div>
+            <input type="text" id="nodeTextInput" class="w-full border border-slate-300 rounded-xl p-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-500" placeholder="請輸入內文...">
+            <div class="flex justify-end gap-2">
+                <button onclick="closeTextModal()" class="px-3.5 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium">取消</button>
+                <button onclick="saveNodeText()" class="px-3.5 py-1.5 text-xs bg-sky-600 hover:bg-sky-700 text-white rounded-lg font-bold">儲存修改</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal 2: API 金鑰設定視窗 (安全儲存於 localStorage) -->
+    <div id="apiKeyModal" class="fixed inset-0 bg-slate-900/40 modal-backdrop z-50 flex items-center justify-center hidden">
+        <div class="bg-white rounded-2xl p-6 w-96 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b pb-2">
+                <h3 class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                    <i class="fa-solid fa-key text-purple-600"></i> 設定 Gemini API 金鑰
+                </h3>
+                <button onclick="closeApiKeyModal()" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+            </div>
+            <p class="text-xs text-slate-600 leading-relaxed">
+                金鑰將僅安全儲存在您個人的瀏覽器中 (`localStorage`)，絕不會寫死在公開程式碼或傳送給第三方伺服器。
+            </p>
+            <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Gemini API Key：</label>
+                <input type="password" id="apiKeyInput" class="w-full border border-slate-300 rounded-xl p-2.5 text-xs focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono" placeholder="AIzaSy...">
+            </div>
+            <div class="bg-purple-50 border border-purple-200 rounded-xl p-3 text-[11px] text-purple-800 leading-normal">
+                <i class="fa-solid fa-circle-info mr-1"></i> 還沒有金鑰？可前往 
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" class="underline font-bold text-purple-900 hover:text-purple-700">Google AI Studio</a> 免費申請。
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button onclick="clearApiKey()" class="px-3.5 py-1.5 text-xs bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg font-medium">清除金鑰</button>
+                <button onclick="closeApiKeyModal()" class="px-3.5 py-1.5 text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium">取消</button>
+                <button onclick="saveApiKey()" class="px-3.5 py-1.5 text-xs bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold">儲存設定</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 邏輯腳本區 -->
+    <script>
+        // 畫布資料結構
+        let nodes = [];
+        let connections = [];
+        let selectedNodeId = null;
+        let selectedConnectionId = null;
+
+        // 連線模式控制
+        let isConnectMode = false;
+        let connectSourceId = null;
+
+        // 拖曳狀態
+        let draggingNodeId = null;
+        let dragOffsetX = 0;
+        let dragOffsetY = 0;
+
+        // DOM 元素引用
+        const canvasContainer = document.getElementById('canvasContainer');
+        const nodesContainer = document.getElementById('nodesContainer');
+        const linesGroup = document.getElementById('linesGroup');
+        const statusText = document.getElementById('statusText');
+
+        // 頁面初始化載入
+        window.onload = () => {
+            // 鍵盤 Delete / Backspace 快捷刪除
+            window.addEventListener('keydown', (e) => {
+                if (e.key === 'Delete' || e.key === 'Backspace') {
+                    if (document.activeElement.tagName !== 'INPUT') {
+                        deleteSelected();
+                    }
+                }
+            });
+
+            // 畫布空白處點擊解除選取
+            canvasContainer.addEventListener('click', (e) => {
+                if (e.target === canvasContainer || e.target.id === 'svgLayer') {
+                    clearSelection();
+                }
+            });
+
+            // 自動載入預設起步框架
+            loadTemplate();
+        };
+
+        // 新增圖形節點
+        function addNode(type, text = '', x = null, y = null) {
+            const id = 'node_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+            const defaultTexts = {
+                terminal: '開始',
+                io: '輸入考試成績',
+                process: '處理步驟',
+                decision: '成績 ≥ 60 分？'
+            };
+
+            const rect = canvasContainer.getBoundingClientRect();
+            const posX = x !== null ? x : Math.max(40, rect.width / 2 - 70 + (nodes.length * 15 % 80));
+            const posY = y !== null ? y : Math.max(40, 60 + (nodes.length * 50 % 200));
+
+            const newNode = {
+                id,
+                type,
+                text: text || defaultTexts[type],
+                x: posX,
+                y: posY
+            };
+
+            nodes.push(newNode);
+            renderNodes();
+            selectNode(id);
+            showStatus('已新增圖形，可雙擊修改文字或拖曳移動。');
+        }
+
+        // 渲染所有圖形節點 HTML
+        function renderNodes() {
+            nodesContainer.innerHTML = '';
+            nodes.forEach(node => {
+                const el = document.createElement('div');
+                el.id = node.id;
+                el.style.left = `${node.x}px`;
+                el.style.top = `${node.y}px`;
+                el.className = `absolute cursor-move pointer-events-auto flex items-center justify-center shadow-md transition-shadow hover:shadow-xl ${
+                    selectedNodeId === node.id ? 'ring-4 ring-sky-400 ring-offset-2' : ''
+                } ${
+                    connectSourceId === node.id ? 'ring-4 ring-amber-400 ring-offset-2 animate-pulse' : ''
+                }`;
+
+                // 依類型給予外觀樣式
+                if (node.type === 'terminal') {
+                    el.className += ' node-terminal w-32 h-12 text-white font-bold text-xs tracking-wide px-2 text-center';
+                    el.innerText = node.text;
+                } else if (node.type === 'process') {
+                    el.className += ' node-process w-36 h-14 text-white font-bold text-xs px-2 text-center';
+                    el.innerText = node.text;
+                } else if (node.type === 'io') {
+                    el.className += ' node-io w-36 h-14 text-white font-bold text-xs px-2 text-center';
+                    el.innerHTML = `<span class="node-io-text pointer-events-none">${node.text}</span>`;
+                } else if (node.type === 'decision') {
+                    el.className += ' node-decision w-32 h-32 text-white font-bold text-xs text-center p-2';
+                    el.innerHTML = `<span class="pointer-events-none max-w-[70px] leading-tight block transform -rotate-0">${node.text}</span>`;
+                }
+
+                // 註冊拖曳、點擊與雙擊事件
+                el.addEventListener('pointerdown', (e) => onNodePointerDown(e, node.id));
+                el.addEventListener('dblclick', (e) => {
+                    e.stopPropagation();
+                    openTextModal(node.id);
+                });
+
+                nodesContainer.appendChild(el);
+            });
+
+            renderLines();
+        }
+
+        // 選取節點
+        function selectNode(id) {
+            if (isConnectMode) {
+                handleConnectClick(id);
+                return;
+            }
+            selectedNodeId = id;
+            selectedConnectionId = null;
+            renderNodes();
+        }
+
+        // 解除選取
+        function clearSelection() {
+            selectedNodeId = null;
+            selectedConnectionId = null;
+            renderNodes();
+        }
+
+        // 圖形拖曳處理
+        function onNodePointerDown(e, id) {
+            e.stopPropagation();
+            selectNode(id);
+
+            const node = nodes.find(n => n.id === id);
+            if (!node) return;
+
+            draggingNodeId = id;
+            dragOffsetX = e.clientX - node.x;
+            dragOffsetY = e.clientY - node.y;
+
+            window.addEventListener('pointermove', onNodePointerMove);
+            window.addEventListener('pointerup', onNodePointerUp);
+        }
+
+        function onNodePointerMove(e) {
+            if (!draggingNodeId) return;
+            const node = nodes.find(n => n.id === draggingNodeId);
+            if (node) {
+                const rect = canvasContainer.getBoundingClientRect();
+                node.x = Math.max(10, Math.min(rect.width - 130, e.clientX - dragOffsetX));
+                node.y = Math.max(10, Math.min(rect.height - 80, e.clientY - dragOffsetY));
+
+                const el = document.getElementById(node.id);
+                if (el) {
+                    el.style.left = `${node.x}px`;
+                    el.style.top = `${node.y}px`;
+                }
+                renderLines();
+            }
+        }
+
+        function onNodePointerUp() {
+            draggingNodeId = null;
+            window.removeEventListener('pointermove', onNodePointerMove);
+            window.removeEventListener('pointerup', onNodePointerUp);
+        }
+
+        // 連線模式控制
+        function toggleConnectMode() {
+            isConnectMode = !isConnectMode;
+            connectSourceId = null;
+
+            const btn = document.getElementById('btnConnectMode');
+            const txt = document.getElementById('connectBtnText');
+
+            if (isConnectMode) {
+                btn.className = "px-3.5 py-2 rounded-xl border border-amber-400 text-xs font-bold bg-amber-500 text-white flex items-center gap-1.5 shadow-md animate-bounce";
+                txt.innerText = "請點擊起始圖形...";
+                showStatus('連線模式：請點擊「第一個圖形」作為起點');
+            } else {
+                btn.className = "px-3.5 py-2 rounded-xl border border-slate-300 text-xs font-bold bg-white text-slate-700 hover:bg-slate-50 flex items-center gap-1.5 shadow-sm transition";
+                txt.innerText = "新增連線模式";
+                showStatus('已退出連線模式');
+            }
+            renderNodes();
+        }
+
+        function handleConnectClick(nodeId) {
+            if (!connectSourceId) {
+                connectSourceId = nodeId;
+                document.getElementById('connectBtnText').innerText = "請點擊目標圖形...";
+                showStatus('請點擊「第二個圖形」作為連線終點');
+                renderNodes();
+            } else {
+                if (connectSourceId !== nodeId) {
+                    const connId = 'conn_' + Date.now();
+                    connections.push({
+                        id: connId,
+                        from: connectSourceId,
+                        to: nodeId,
+                        label: ''
+                    });
+                    showStatus('連線建立成功！可點擊連線徽章切換「是 / 否」標籤');
+                }
+                connectSourceId = null;
+                toggleConnectMode();
+            }
+        }
+
+        // 計算圖形中心座標
+        function getNodeCenter(node) {
+            let width = 140;
+            let height = 56;
+            if (node.type === 'decision') {
+                width = 128;
+                height = 128;
+            }
+            return {
+                x: node.x + width / 2,
+                y: node.y + height / 2
+            };
+        }
+
+        // 渲染 SVG 導向連線
+        function renderLines() {
+            linesGroup.innerHTML = '';
+
+            connections.forEach(conn => {
+                const sourceNode = nodes.find(n => n.id === conn.from);
+                const targetNode = nodes.find(n => n.id === conn.to);
+
+                if (!sourceNode || !targetNode) return;
+
+                const start = getNodeCenter(sourceNode);
+                const end = getNodeCenter(targetNode);
+
+                const isSelected = selectedConnectionId === conn.id;
+
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                const d = `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
+                path.setAttribute('d', d);
+                path.setAttribute('class', `flow-line ${isSelected ? 'selected' : ''}`);
+                path.setAttribute('marker-end', isSelected ? 'url(#arrow-selected)' : 'url(#arrow)');
+
+                path.onclick = (e) => {
+                    e.stopPropagation();
+                    selectedConnectionId = conn.id;
+                    selectedNodeId = null;
+                    renderNodes();
+                };
+
+                linesGroup.appendChild(path);
+
+                // 計算中點標籤 (是 / 否徽章)
+                const midX = (start.x + end.x) / 2;
+                const midY = (start.y + end.y) / 2;
+
+                const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                g.setAttribute('transform', `translate(${midX}, ${midY})`);
+                g.setAttribute('class', 'cursor-pointer');
+                g.onclick = (e) => {
+                    e.stopPropagation();
+                    toggleLineLabel(conn.id);
+                };
+
+                const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+                rect.setAttribute('x', '-14');
+                rect.setAttribute('y', '-12');
+                rect.setAttribute('width', '28');
+                rect.setAttribute('height', '24');
+                rect.setAttribute('rx', '6');
+                rect.setAttribute('fill', conn.label ? (conn.label === '是' ? '#10b981' : '#ef4444') : '#94a3b8');
+
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text.setAttribute('text-anchor', 'middle');
+                text.setAttribute('dominant-baseline', 'central');
+                text.setAttribute('fill', 'white');
+                text.setAttribute('font-size', '11');
+                text.setAttribute('font-weight', 'bold');
+                text.textContent = conn.label || '+';
+
+                g.appendChild(rect);
+                g.appendChild(text);
+                linesGroup.appendChild(g);
+            });
+        }
+
+        // 切換連線標籤 (無 -> 是 -> 否 -> 無)
+        function toggleLineLabel(connId) {
+            const conn = connections.find(c => c.id === connId);
+            if (conn) {
+                if (conn.label === '') conn.label = '是';
+                else if (conn.label === '是') conn.label = '否';
+                else conn.label = '';
+                renderLines();
+            }
+        }
+
+        // 刪除選取的物件
+        function deleteSelected() {
+            if (selectedNodeId) {
+                nodes = nodes.filter(n => n.id !== selectedNodeId);
+                connections = connections.filter(c => c.from !== selectedNodeId && c.to !== selectedNodeId);
+                selectedNodeId = null;
+                showStatus('已刪除選取的圖形');
+            } else if (selectedConnectionId) {
+                connections = connections.filter(c => c.id !== selectedConnectionId);
+                selectedConnectionId = null;
+                showStatus('已刪除選取的連線');
+            } else {
+                showStatus('請先點擊選取要刪除的圖形或連線');
+            }
+            renderNodes();
+        }
+
+        // 清空畫布確認
+        function confirmClearCanvas() {
+            if (nodes.length === 0) return;
+            if (confirm('確定要清空畫布上的所有圖形與連線嗎？')) {
+                nodes = [];
+                connections = [];
+                selectedNodeId = null;
+                selectedConnectionId = null;
+                renderNodes();
+                showStatus('已清空畫布，開始新練習吧！');
+            }
+        }
+
+        // 編輯文字 Modal
+        let editingNodeId = null;
+        function openTextModal(id) {
+            editingNodeId = id;
+            const node = nodes.find(n => n.id === id);
+            if (node) {
+                document.getElementById('nodeTextInput').value = node.text;
+                document.getElementById('textModal').classList.remove('hidden');
+                document.getElementById('nodeTextInput').focus();
+            }
+        }
+
+        function closeTextModal() {
+            document.getElementById('textModal').classList.add('hidden');
+            editingNodeId = null;
+        }
+
+        function saveNodeText() {
+            const val = document.getElementById('nodeTextInput').value.trim();
+            if (editingNodeId && val) {
+                const node = nodes.find(n => n.id === editingNodeId);
+                if (node) {
+                    node.text = val;
+                    renderNodes();
+                }
+            }
+            closeTextModal();
+        }
+
+        // 套用快捷文字
+        function applyQuickText(txt) {
+            if (selectedNodeId) {
+                const node = nodes.find(n => n.id === selectedNodeId);
+                if (node) {
+                    node.text = txt;
+                    renderNodes();
+                    showStatus(`已更新圖形內文為：「${txt}」`);
+                }
+            } else {
+                showStatus('請先點擊選取一個圖形，再套用快捷文字！');
+            }
+        }
+
+        // HTML5 拖放事件
+        function onDragStart(e, type) {
+            e.dataTransfer.setData('text/plain', type);
+        }
+
+        function allowDrop(e) {
+            e.preventDefault();
+        }
+
+        function onDrop(e) {
+            e.preventDefault();
+            const type = e.dataTransfer.getData('text/plain');
+            if (type) {
+                const rect = canvasContainer.getBoundingClientRect();
+                const x = e.clientX - rect.left - 60;
+                const y = e.clientY - rect.top - 30;
+                addNode(type, '', x, y);
+            }
+        }
+
+        // 動態狀態提示
+        function showStatus(msg) {
+            statusText.innerText = msg;
+        }
+
+        // 載入預設解題起步框架
+        function loadTemplate() {
+            nodes = [
+                { id: 'n1', type: 'terminal', text: '開始', x: 260, y: 30 },
+                { id: 'n2', type: 'io', text: '輸入考試成績', x: 250, y: 120 },
+                { id: 'n3', type: 'decision', text: '成績 ≥ 60 分？', x: 255, y: 220 },
+                { id: 'n4', type: 'io', text: '顯示『及格』', x: 120, y: 380 },
+                { id: 'n5', type: 'io', text: '顯示『不及格』', x: 390, y: 380 },
+                { id: 'n6', type: 'terminal', text: '結束', x: 260, y: 500 }
+            ];
+
+            connections = [
+                { id: 'c1', from: 'n1', to: 'n2', label: '' },
+                { id: 'c2', from: 'n2', to: 'n3', label: '' },
+                { id: 'c3', from: 'n3', to: 'n4', label: '是' },
+                { id: 'c4', from: 'n3', to: 'n5', label: '否' },
+                { id: 'c5', from: 'n4', to: 'n6', label: '' },
+                { id: 'c6', from: 'n5', to: 'n6', label: '' }
+            ];
+
+            renderNodes();
+            showStatus('已載入「考試成績是否及格？」範例起步框架！');
+        }
+
+        // 頁籤切換
+        function switchTab(tab) {
+            const taskBtn = document.getElementById('tabTaskBtn');
+            const aiBtn = document.getElementById('tabAiBtn');
+            const taskContent = document.getElementById('tabTask');
+            const aiContent = document.getElementById('tabAi');
+
+            if (tab === 'task') {
+                taskBtn.className = "flex-1 py-3 text-xs font-bold border-b-2 border-sky-600 text-sky-600 flex items-center justify-center gap-1.5 bg-white";
+                aiBtn.className = "flex-1 py-3 text-xs font-bold text-slate-500 hover:text-slate-700 flex items-center justify-center gap-1.5 bg-slate-50";
+                taskContent.classList.remove('hidden');
+                aiContent.classList.add('hidden');
+            } else {
+                aiBtn.className = "flex-1 py-3 text-xs font-bold border-b-2 border-purple-600 text-purple-600 flex items-center justify-center gap-1.5 bg-white";
+                taskBtn.className = "flex-1 py-3 text-xs font-bold text-slate-500 hover:text-slate-700 flex items-center justify-center gap-1.5 bg-slate-50";
+                aiContent.classList.remove('hidden');
+                taskContent.classList.add('hidden');
+            }
+        }
+
+        // ================= 離線本地邏輯檢查器 (Rule Engine) =================
+        function runLocalLogicCheck() {
+            const resultBox = document.getElementById('localCheckResult');
+            resultBox.classList.remove('hidden');
+
+            let issues = [];
+            let passes = [];
+
+            // 1. 檢查是否有「開始」與「結束」
+            const hasStart = nodes.some(n => n.type === 'terminal' && n.text.includes('開始'));
+            const hasEnd = nodes.some(n => n.type === 'terminal' && n.text.includes('結束'));
+            if (hasStart && hasEnd) {
+                passes.push('具備「開始」與「結束」圓角矩形。');
+            } else {
+                issues.push('缺少「開始」或「結束」圓角矩形。');
+            }
+
+            // 2. 檢查輸入成績平行四邊形
+            const hasInput = nodes.some(n => n.type === 'io' && (n.text.includes('輸入') || n.text.includes('成績')));
+            if (hasInput) {
+                passes.push('具備「輸入考試成績」平行四邊形。');
+            } else {
+                issues.push('建議使用平行四邊形進行「輸入考試成績」。');
+            }
+
+            // 3. 檢查菱形決策判斷
+            const decisionNode = nodes.find(n => n.type === 'decision');
+            if (decisionNode) {
+                passes.push('具備菱形「決策判斷」圖形。');
+
+                // 檢查菱形的出來連線是否有「是」與「否」
+                const outConns = connections.filter(c => c.from === decisionNode.id);
+                const hasYes = outConns.some(c => c.label === '是');
+                const hasNo = outConns.some(c => c.label === '否');
+
+                if (hasYes && hasNo) {
+                    passes.push('決策菱形已包含「是」與「否」兩條分支標籤。');
+                } else {
+                    issues.push('菱形分支連線需要點擊標籤補上「是」與「否」！');
+                }
+            } else {
+                issues.push('缺少菱形判斷圖形 (例：成績 ≥ 60 分？)。');
+            }
+
+            // 4. 輸出顯示診斷結果
+            if (issues.length === 0) {
+                resultBox.className = "p-3.5 rounded-xl border border-emerald-200 bg-emerald-50 text-xs space-y-1.5 text-emerald-800";
+                resultBox.innerHTML = `
+                    <div class="font-bold flex items-center gap-1.5 text-emerald-900">
+                        <i class="fa-solid fa-circle-check text-emerald-600 text-sm"></i> 邏輯完全正確！太棒了！
+                    </div>
+                    <ul class="list-disc list-inside space-y-1 text-[11px]">
+                        ${passes.map(p => `<li>${p}</li>`).join('')}
+                    </ul>
+                `;
+            } else {
+                resultBox.className = "p-3.5 rounded-xl border border-amber-200 bg-amber-50 text-xs space-y-1.5 text-amber-900";
+                resultBox.innerHTML = `
+                    <div class="font-bold flex items-center gap-1.5 text-amber-900">
+                        <i class="fa-solid fa-triangle-exclamation text-amber-600 text-sm"></i> 發現幾處可改進的地方：
+                    </div>
+                    <ul class="list-disc list-inside space-y-1 text-[11px] text-amber-800">
+                        ${issues.map(i => `<li>${i}</li>`).join('')}
+                    </ul>
+                `;
+            }
+        }
+
+        // ================= API 金鑰與 Gemini AI 整合 =================
+        function openApiKeyModal() {
+            const key = localStorage.getItem('gemini_api_key') || '';
+            document.getElementById('apiKeyInput').value = key;
+            document.getElementById('apiKeyModal').classList.remove('hidden');
+        }
+
+        function closeApiKeyModal() {
+            document.getElementById('apiKeyModal').classList.add('hidden');
+        }
+
+        function saveApiKey() {
+            const key = document.getElementById('apiKeyInput').value.trim();
+            if (key) {
+                localStorage.setItem('gemini_api_key', key);
+                showStatus('API 金鑰已儲存於您的瀏覽器！');
+            }
+            closeApiKeyModal();
+        }
+
+        function clearApiKey() {
+            localStorage.removeItem('gemini_api_key');
+            document.getElementById('apiKeyInput').value = '';
+            showStatus('已清除 API 金鑰');
+            closeApiKeyModal();
+        }
+
+        async function askGemini(mode) {
+            switchTab('ai');
+
+            const apiKey = localStorage.getItem('gemini_api_key');
+            if (!apiKey) {
+                openApiKeyModal();
+                showStatus('請先設定您的 Gemini API 金鑰');
+                return;
+            }
+
+            const loading = document.getElementById('aiLoading');
+            const output = document.getElementById('aiOutput');
+
+            loading.classList.remove('hidden');
+            output.innerHTML = '';
+
+            const canvasData = {
+                nodes: nodes.map(n => ({ type: n.type, text: n.text })),
+                connections: connections.map(c => {
+                    const fromNode = nodes.find(n => n.id === c.from);
+                    const toNode = nodes.find(n => n.id === c.to);
+                    return {
+                        from: fromNode ? fromNode.text : '未知',
+                        to: toNode ? toNode.text : '未知',
+                        label: c.label || '無標籤'
+                    };
+                })
+            };
+
+            const systemPrompt = `你是一位熱情親切、講話通俗易懂的台灣國中資訊科技老師。
+目標任務：指導七年級學生完成「考試成績是否及格？」流程圖。
+
+標準正確邏輯：
+1. 開始 (圓角矩形)
+2. 輸入考試成績 (平行四邊形)
+3. 判斷：成績 ≥ 60 分？ (菱形)
+   - 「是」分支 ➔ 顯示「及格」 (平行四邊形)
+   - 「否」分支 ➔ 顯示「不及格」 (平行四邊形)
+4. 顯示「及格」與「不及格」皆連線至 ➔ 結束 (圓角矩形)
+
+學生目前的流程圖 JSON：
+${JSON.stringify(canvasData, null, 2)}`;
+
+            let userPrompt = '';
+            if (mode === 'hint') {
+                userPrompt = `請分析學生目前的流程圖，給予「下一步思考提示」。
+需求規則：
+- 絕不直接公布完整答案！
+- 指出一個目前最需要修正或補齊的步驟即可。
+- 100 字以內，語氣溫和鼓勵。`;
+            } else {
+                userPrompt = `請完整檢查診斷學生流程圖。
+需求規則：
+1. 先讚美給予鼓勵。
+2. 逐點檢查圖形選擇與「是/否」分支邏輯是否正確。
+3. 用國中生能理解的台灣口吻回答，字數 150-200 字。`;
+            }
+
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+            const payload = {
+                contents: [{ parts: [{ text: userPrompt }] }],
+                systemInstruction: { parts: [{ text: systemPrompt }] }
+            };
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+                loading.classList.add('hidden');
+
+                if (data.candidates && data.candidates[0].content.parts[0].text) {
+                    const reply = data.candidates[0].content.parts[0].text;
+                    output.innerHTML = reply.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+                } else if (data.error) {
+                    output.innerText = `API 錯誤：${data.error.message || '請檢查 Key 是否正確'}`;
+                } else {
+                    output.innerText = 'AI 助教思考超時，請再試一次！';
+                }
+            } catch (err) {
+                loading.classList.add('hidden');
+                output.innerText = '連線失敗，請檢查網路連線或 API Key 是否正確。';
+                console.error(err);
+            }
+        }
+
+        // 匯出高解析度 PNG 圖片
+        function exportPNG() {
+            clearSelection();
+            showStatus('正在生成高畫質 PNG 圖片...');
+            setTimeout(() => {
+                html2canvas(canvasContainer, {
+                    backgroundColor: '#f8fafc',
+                    scale: 2
+                }).then(canvas => {
+                    const link = document.createElement('a');
+                    link.download = '考試成績流程圖_作業.png';
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                    showStatus('圖片匯出成功！');
+                });
+            }, 200);
+        }
+
+        // 列印與轉存 PDF
+        function printFlowchart() {
+            clearSelection();
+            window.print();
+        }
+    </script>
+</body>
+</html>
